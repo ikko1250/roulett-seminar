@@ -4,6 +4,22 @@ const REMOVED_KEY = "roulette-removed";
 const REMOVE_WINNER_KEY = "roulette-remove-winner";
 const DISABLED_KEY = "roulette-disabled";
 const DOUBLE_KEY = "roulette-double";
+const COLOR_KEY = "roulette-colors";
+
+// パステル調のパレット。文字は濃いグレーで載せる
+const PALETTE = [
+  "#F4A7A3", // サーモンピンク
+  "#F9C98B", // アプリコット
+  "#F6E58D", // バター
+  "#B5E3A1", // ミント
+  "#9ED9D3", // アクア
+  "#A7C7F2", // スカイ
+  "#C3B1E8", // ラベンダー
+  "#F2B5D4", // ピンク
+  "#D8C3A5", // ベージュ
+  "#D3E09A", // ライム
+];
+const TEXT_COLOR = "#3a3a3a";
 const SPIN_DURATION = 5000; // ms
 const REMOVE_DELAY = 1500; // 結果を見せてから候補を外すまでの待ち時間 (ms)
 const MIN_TURNS = 5;
@@ -26,6 +42,7 @@ let busy = false; // 回転中、または当選項目を外すまでの待ち�
 let removed = []; // 候補から外した項目（当たった順）
 let disabled = new Set(); // 一時的に外している項目名
 let doubled = new Set(); // 確率2倍の項目名
+let colorMap = {}; // 項目名 → PALETTE の番号。一度決めた色は変えない
 
 function storageGet(key) {
   try {
@@ -58,6 +75,13 @@ function loadState() {
   removeWinnerEl.checked = storageGet(REMOVE_WINNER_KEY) === "1";
   disabled = loadSet(DISABLED_KEY);
   doubled = loadSet(DOUBLE_KEY);
+
+  try {
+    const parsed = JSON.parse(storageGet(COLOR_KEY));
+    if (parsed && typeof parsed === "object") colorMap = parsed;
+  } catch (e) {
+    colorMap = {};
+  }
 }
 
 function loadSet(key) {
@@ -79,6 +103,8 @@ function clearSets() {
   disabled.clear();
   doubled.clear();
   saveSets();
+  colorMap = {};
+  storageSet(COLOR_KEY, "{}");
 }
 
 function saveItems() {
@@ -99,18 +125,51 @@ function getItems() {
 // ルーレットに載せる項目。index は項目欄での位置、weight は当たりやすさ
 function getEntries() {
   const items = getItems();
+  assignColors(items);
   return items
     .map((label, index) => ({
       label,
       index,
       weight: doubled.has(label) ? 2 : 1,
-      color: colorFor(index, items.length),
+      color: colorFor(label),
     }))
     .filter((e) => !disabled.has(e.label));
 }
 
-function colorFor(index, count) {
-  return `hsl(${(index * 360) / count}, 70%, 60%)`;
+// まだ色のない項目に色を割り当てる。
+// 前後の項目と違う色のうち、いま使われている数が最も少ない色を選ぶ
+function assignColors(items) {
+  let changed = false;
+  items.forEach((label, i) => {
+    if (colorMap[label] !== undefined) return;
+
+    const counts = PALETTE.map(() => 0);
+    items.forEach((other) => {
+      if (colorMap[other] !== undefined) counts[colorMap[other]]++;
+    });
+    // ルーレットは円なので、先頭と末尾も隣どうしとして扱う
+    const n = items.length;
+    const neighbors = [items[(i - 1 + n) % n], items[(i + 1) % n]]
+      .map((n) => colorMap[n])
+      .filter((c) => c !== undefined);
+
+    let best = 0;
+    let bestCount = Infinity;
+    PALETTE.forEach((_, c) => {
+      if (neighbors.includes(c)) return;
+      if (counts[c] < bestCount) {
+        best = c;
+        bestCount = counts[c];
+      }
+    });
+    colorMap[label] = best;
+    changed = true;
+  });
+  if (changed) storageSet(COLOR_KEY, JSON.stringify(colorMap));
+}
+
+function colorFor(label) {
+  return PALETTE[colorMap[label] % PALETTE.length] || PALETTE[0];
 }
 
 function setItems(items) {
@@ -161,7 +220,7 @@ function renderList() {
 
       const swatch = document.createElement("span");
       swatch.className = "swatch";
-      swatch.style.background = colorFor(index, items.length);
+      swatch.style.background = colorFor(label);
 
       const name = document.createElement("span");
       name.className = "item-name";
@@ -272,10 +331,8 @@ function draw() {
     ctx.rotate(start + seg / 2);
     ctx.textAlign = "right";
     ctx.textBaseline = "middle";
-    ctx.fillStyle = "#fff";
+    ctx.fillStyle = TEXT_COLOR;
     ctx.font = `bold ${fontSize}px sans-serif`;
-    ctx.shadowColor = "rgba(0, 0, 0, 0.4)";
-    ctx.shadowBlur = 3;
     const maxWidth = radius * 0.7;
     ctx.fillText(truncate(label, maxWidth), radius - 16, 0);
     ctx.restore();
