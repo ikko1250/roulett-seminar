@@ -105,11 +105,59 @@ textarea {
   resize: vertical;
 }
 
+textarea.dragover {
+  border-color: #e53935;
+  background: #fff5f5;
+}
+
 .sub-btn {
   align-self: flex-start;
   padding: 6px 12px;
   border: 1px solid #ccc;
   border-radius: 6px;
   background: #fff;
+  font-size: 0.9rem;
+  color: inherit;
   cursor: pointer;
+}
+
+.sub-btn:disabled {
+  color: #aaa;
+  cursor: not-allowed;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ファイル選択の input は隠し、ラベルをボタンとして使う */
+.file-btn input {
+  display: none;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  cursor: pointer;
+}
+
+.removed-area {
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.removed-title {
+  margin: 0 0 4px;
+  font-weight: bold;
+}
+
+.removed-list {
+  margin: 0 0 8px;
+  padding-left: 1.5em;
 }

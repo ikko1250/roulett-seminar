@@ -1,6 +1,9 @@
 const DEFAULT_ITEMS = ["A", "B", "C", "D", "E", "F"];
 const STORAGE_KEY = "roulette-items";
+const REMOVED_KEY = "roulette-removed";
+const REMOVE_WINNER_KEY = "roulette-remove-winner";
 const SPIN_DURATION = 5000; // ms
+const REMOVE_DELAY = 1500; // 結果を見せてから候補を外すまでの待ち時間 (ms)
 const MIN_TURNS = 5;
 
 const canvas = document.getElementById("wheel");
@@ -9,26 +12,53 @@ const spinBtn = document.getElementById("spin");
 const resultEl = document.getElementById("result");
 const itemsEl = document.getElementById("items");
 const resetBtn = document.getElementById("reset");
+const fileEl = document.getElementById("file");
+const removeWinnerEl = document.getElementById("remove-winner");
+const removedAreaEl = document.getElementById("removed-area");
+const removedListEl = document.getElementById("removed-list");
+const restoreBtn = document.getElementById("restore");
 
 let rotation = 0; // ラジアン。ホイール全体の回転角
-let spinning = false;
+let busy = false; // 回転中、または当選項目を外すまでの待ち時間中
+let removed = []; // 候補から外した項目（当たった順）
 
-function loadItems() {
+function storageGet(key) {
   try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved !== null) return saved;
+    return localStorage.getItem(key);
   } catch (e) {
-    // localStorage が使えない環境では初期値を使う
+    // localStorage が使えない環境では保存なしで動作する
+    return null;
   }
-  return DEFAULT_ITEMS.join("\n");
 }
 
-function saveItems(text) {
+function storageSet(key, value) {
   try {
-    localStorage.setItem(STORAGE_KEY, text);
+    localStorage.setItem(key, value);
   } catch (e) {
     // 保存できなくても動作は継続
   }
+}
+
+function loadState() {
+  const saved = storageGet(STORAGE_KEY);
+  itemsEl.value = saved !== null ? saved : DEFAULT_ITEMS.join("\n");
+
+  try {
+    const parsed = JSON.parse(storageGet(REMOVED_KEY));
+    if (Array.isArray(parsed)) removed = parsed.map(String);
+  } catch (e) {
+    removed = [];
+  }
+
+  removeWinnerEl.checked = storageGet(REMOVE_WINNER_KEY) === "1";
+}
+
+function saveItems() {
+  storageSet(STORAGE_KEY, itemsEl.value);
+}
+
+function saveRemoved() {
+  storageSet(REMOVED_KEY, JSON.stringify(removed));
 }
 
 function getItems() {
@@ -36,6 +66,31 @@ function getItems() {
     .split("\n")
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
+}
+
+function setItems(items) {
+  itemsEl.value = items.join("\n");
+  saveItems();
+}
+
+function setBusy(value) {
+  busy = value;
+  spinBtn.disabled = value;
+  itemsEl.disabled = value;
+  resetBtn.disabled = value;
+  restoreBtn.disabled = value;
+  fileEl.disabled = value;
+}
+
+function renderRemoved() {
+  removedAreaEl.hidden = removed.length === 0;
+  removedListEl.replaceChildren(
+    ...removed.map((item) => {
+      const li = document.createElement("li");
+      li.textContent = item;
+      return li;
+    })
+  );
 }
 
 function setupCanvas() {
@@ -139,11 +194,9 @@ function easeOutCubic(t) {
 
 function spin() {
   const items = getItems();
-  if (spinning || items.length === 0) return;
+  if (busy || items.length === 0) return;
 
-  spinning = true;
-  spinBtn.disabled = true;
-  itemsEl.disabled = true;
+  setBusy(true);
   resultEl.textContent = "";
 
   const startRotation = rotation;
@@ -157,37 +210,122 @@ function spin() {
 
     if (t < 1) {
       requestAnimationFrame(frame);
+      return;
+    }
+
+    rotation = mod(rotation, Math.PI * 2);
+    const winnerIndex = indexAtPointer(items.length);
+    const winner = items[winnerIndex];
+    resultEl.textContent = `結果：${winner}`;
+
+    if (removeWinnerEl.checked) {
+      // 結果を確認できるよう少し待ってから外す
+      setTimeout(() => {
+        setItems(items.filter((_, i) => i !== winnerIndex));
+        removed.push(winner);
+        saveRemoved();
+        renderRemoved();
+        draw();
+        setBusy(false);
+      }, REMOVE_DELAY);
     } else {
-      rotation = mod(rotation, Math.PI * 2);
-      const winner = items[indexAtPointer(items.length)];
-      resultEl.textContent = `結果：${winner}`;
-      spinning = false;
-      spinBtn.disabled = false;
-      itemsEl.disabled = false;
+      setBusy(false);
     }
   }
 
   requestAnimationFrame(frame);
 }
 
-itemsEl.value = loadItems();
+// テキストファイルを読み込む。UTF-8 として読めなければ Shift_JIS とみなす
+async function readTextFile(file) {
+  const buffer = await file.arrayBuffer();
+  let text;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+  } catch (e) {
+    text = new TextDecoder("shift_jis").decode(buffer);
+  }
+  return text.replace(/^﻿/, "").replace(/\r\n?/g, "\n");
+}
+
+async function loadFile(file) {
+  if (busy || !file) return;
+  try {
+    const text = await readTextFile(file);
+    const items = text
+      .split("\n")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+    if (items.length === 0) {
+      alert("ファイルに項目がありませんでした。");
+      return;
+    }
+    setItems(items);
+    removed = [];
+    saveRemoved();
+    renderRemoved();
+    resultEl.textContent = "";
+    draw();
+  } catch (e) {
+    alert("ファイルを読み込めませんでした。");
+  }
+}
+
+loadState();
+renderRemoved();
 setupCanvas();
 draw();
 
 spinBtn.addEventListener("click", spin);
 
 itemsEl.addEventListener("input", () => {
-  saveItems(itemsEl.value);
+  saveItems();
   resultEl.textContent = "";
   draw();
 });
 
 resetBtn.addEventListener("click", () => {
-  if (spinning) return;
-  itemsEl.value = DEFAULT_ITEMS.join("\n");
-  saveItems(itemsEl.value);
+  if (busy) return;
+  setItems(DEFAULT_ITEMS);
+  removed = [];
+  saveRemoved();
+  renderRemoved();
   resultEl.textContent = "";
   draw();
+});
+
+restoreBtn.addEventListener("click", () => {
+  if (busy) return;
+  setItems([...getItems(), ...removed]);
+  removed = [];
+  saveRemoved();
+  renderRemoved();
+  resultEl.textContent = "";
+  draw();
+});
+
+removeWinnerEl.addEventListener("change", () => {
+  storageSet(REMOVE_WINNER_KEY, removeWinnerEl.checked ? "1" : "0");
+});
+
+fileEl.addEventListener("change", () => {
+  loadFile(fileEl.files[0]);
+  fileEl.value = ""; // 同じファイルを続けて選べるようにする
+});
+
+itemsEl.addEventListener("dragover", (e) => {
+  e.preventDefault();
+  itemsEl.classList.add("dragover");
+});
+
+itemsEl.addEventListener("dragleave", () => {
+  itemsEl.classList.remove("dragover");
+});
+
+itemsEl.addEventListener("drop", (e) => {
+  e.preventDefault();
+  itemsEl.classList.remove("dragover");
+  loadFile(e.dataTransfer.files[0]);
 });
 
 window.addEventListener("resize", () => {

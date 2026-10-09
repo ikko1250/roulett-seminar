@@ -23,8 +23,25 @@
 
     <section class="items-area">
       <label for="items">項目（1行に1つ）</label>
-      <textarea id="items" rows="10"></textarea>
-      <button id="reset" class="sub-btn" type="button">初期値に戻す</button>
+      <textarea id="items" rows="10" placeholder="テキストファイルをここにドロップしても読み込めます"></textarea>
+      <div class="row">
+        <label class="sub-btn file-btn">
+          テキストファイルを読み込む
+          <input id="file" type="file" accept=".txt,.csv,text/plain">
+        </label>
+        <button id="reset" class="sub-btn" type="button">初期値に戻す</button>
+      </div>
+
+      <label class="check">
+        <input id="remove-winner" type="checkbox">
+        当たった項目を候補から外す
+      </label>
+
+      <div id="removed-area" class="removed-area" hidden>
+        <p class="removed-title">外した項目</p>
+        <ol id="removed-list" class="removed-list"></ol>
+        <button id="restore" class="sub-btn" type="button">すべて候補に戻す</button>
+      </div>
     </section>
   </main>
 
