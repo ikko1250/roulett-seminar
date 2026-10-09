@@ -20,8 +20,8 @@ const PALETTE = [
   "#D3E09A", // ライム
 ];
 const TEXT_COLOR = "#3a3a3a";
-const SPIN_DURATION = 5000; // ms
-const REMOVE_DELAY = 1500; // 結果を見せてから候補を外すまでの待ち時間 (ms)
+const SPIN_DURATION = 2500; // ms
+const REMOVE_DELAY = 600; // 結果を見せてから候補を外すまでの待ち時間 (ms)
 const MIN_TURNS = 5;
 
 const canvas = document.getElementById("wheel");
