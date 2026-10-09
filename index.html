@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ルーレット</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>ルーレット</h1>
+  </header>
+
+  <main>
+    <section class="wheel-area">
+      <div class="wheel-wrap">
+        <div class="pointer" aria-hidden="true"></div>
+        <canvas id="wheel" width="500" height="500"></canvas>
+      </div>
+      <button id="spin" class="spin-btn">回す</button>
+      <p id="result" class="result" aria-live="polite"></p>
+    </section>
+
+    <section class="items-area">
+      <label for="items">項目（1行に1つ）</label>
+      <textarea id="items" rows="10"></textarea>
+      <button id="reset" class="sub-btn" type="button">初期値に戻す</button>
+    </section>
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>
