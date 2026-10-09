@@ -2,6 +2,8 @@ const DEFAULT_ITEMS = ["A", "B", "C", "D", "E", "F"];
 const STORAGE_KEY = "roulette-items";
 const REMOVED_KEY = "roulette-removed";
 const REMOVE_WINNER_KEY = "roulette-remove-winner";
+const DISABLED_KEY = "roulette-disabled";
+const DOUBLE_KEY = "roulette-double";
 const SPIN_DURATION = 5000; // ms
 const REMOVE_DELAY = 1500; // 結果を見せてから候補を外すまでの待ち時間 (ms)
 const MIN_TURNS = 5;
@@ -17,10 +19,13 @@ const removeWinnerEl = document.getElementById("remove-winner");
 const removedAreaEl = document.getElementById("removed-area");
 const removedListEl = document.getElementById("removed-list");
 const restoreBtn = document.getElementById("restore");
+const itemListEl = document.getElementById("item-list");
 
 let rotation = 0; // ラジアン。ホイール全体の回転角
 let busy = false; // 回転中、または当選項目を外すまでの待ち時間中
 let removed = []; // 候補から外した項目（当たった順）
+let disabled = new Set(); // 一時的に外している項目名
+let doubled = new Set(); // 確率2倍の項目名
 
 function storageGet(key) {
   try {
@@ -51,6 +56,29 @@ function loadState() {
   }
 
   removeWinnerEl.checked = storageGet(REMOVE_WINNER_KEY) === "1";
+  disabled = loadSet(DISABLED_KEY);
+  doubled = loadSet(DOUBLE_KEY);
+}
+
+function loadSet(key) {
+  try {
+    const parsed = JSON.parse(storageGet(key));
+    if (Array.isArray(parsed)) return new Set(parsed.map(String));
+  } catch (e) {
+    // 壊れた値は無視する
+  }
+  return new Set();
+}
+
+function saveSets() {
+  storageSet(DISABLED_KEY, JSON.stringify([...disabled]));
+  storageSet(DOUBLE_KEY, JSON.stringify([...doubled]));
+}
+
+function clearSets() {
+  disabled.clear();
+  doubled.clear();
+  saveSets();
 }
 
 function saveItems() {
@@ -68,6 +96,23 @@ function getItems() {
     .filter((s) => s.length > 0);
 }
 
+// ルーレットに載せる項目。index は項目欄での位置、weight は当たりやすさ
+function getEntries() {
+  const items = getItems();
+  return items
+    .map((label, index) => ({
+      label,
+      index,
+      weight: doubled.has(label) ? 2 : 1,
+      color: colorFor(index, items.length),
+    }))
+    .filter((e) => !disabled.has(e.label));
+}
+
+function colorFor(index, count) {
+  return `hsl(${(index * 360) / count}, 70%, 60%)`;
+}
+
 function setItems(items) {
   itemsEl.value = items.join("\n");
   saveItems();
@@ -80,6 +125,82 @@ function setBusy(value) {
   resetBtn.disabled = value;
   restoreBtn.disabled = value;
   fileEl.disabled = value;
+  itemListEl.querySelectorAll("input").forEach((el) => (el.disabled = value));
+}
+
+function renderList() {
+  const items = getItems();
+  const entries = getEntries();
+  const total = entries.reduce((sum, e) => sum + e.weight, 0);
+
+  if (items.length === 0) {
+    const li = document.createElement("li");
+    li.className = "empty";
+    li.textContent = "項目がありません";
+    itemListEl.replaceChildren(li);
+    return;
+  }
+
+  itemListEl.replaceChildren(
+    ...items.map((label, index) => {
+      const on = !disabled.has(label);
+      const isDouble = doubled.has(label);
+
+      const li = document.createElement("li");
+      li.classList.toggle("off", !on);
+
+      const enable = document.createElement("input");
+      enable.type = "checkbox";
+      enable.checked = on;
+      enable.title = "チェックを外すと一時的に候補から外れます";
+      enable.addEventListener("change", () => {
+        if (enable.checked) disabled.delete(label);
+        else disabled.add(label);
+        onSettingsChange();
+      });
+
+      const swatch = document.createElement("span");
+      swatch.className = "swatch";
+      swatch.style.background = colorFor(index, items.length);
+
+      const name = document.createElement("span");
+      name.className = "item-name";
+      name.textContent = label;
+      name.title = label;
+      name.addEventListener("click", () => {
+        if (!busy) enable.click();
+      });
+
+      const doubleLabel = document.createElement("label");
+      doubleLabel.className = "double";
+      const double = document.createElement("input");
+      double.type = "checkbox";
+      double.checked = isDouble;
+      double.addEventListener("change", () => {
+        if (double.checked) doubled.add(label);
+        else doubled.delete(label);
+        onSettingsChange();
+      });
+      doubleLabel.append(double, "2倍");
+
+      const prob = document.createElement("span");
+      prob.className = "prob";
+      const weight = isDouble ? 2 : 1;
+      prob.textContent = on && total > 0 ? `${((weight / total) * 100).toFixed(1)}%` : "-";
+
+      li.append(enable, swatch, name, doubleLabel, prob);
+      return li;
+    })
+  );
+
+  if (busy) setBusy(true);
+}
+
+function onSettingsChange() {
+  saveSets();
+  resultEl.textContent = "";
+  renderList();
+  draw();
 }
 
 function renderRemoved() {
@@ -102,7 +223,7 @@ function setupCanvas() {
 }
 
 function draw() {
-  const items = getItems();
+  const entries = getEntries();
   const size = canvas.clientWidth;
   const cx = size / 2;
   const cy = size / 2;
@@ -110,7 +231,7 @@ function draw() {
 
   ctx.clearRect(0, 0, size, size);
 
-  if (items.length === 0) {
+  if (entries.length === 0) {
     ctx.beginPath();
     ctx.arc(cx, cy, radius, 0, Math.PI * 2);
     ctx.fillStyle = "#ddd";
@@ -119,22 +240,27 @@ function draw() {
     ctx.font = "16px sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("項目を入力してください", cx, cy);
+    ctx.fillText(
+      getItems().length === 0 ? "項目を入力してください" : "有効な項目がありません",
+      cx,
+      cy
+    );
     return;
   }
 
-  const seg = (Math.PI * 2) / items.length;
+  const total = entries.reduce((sum, e) => sum + e.weight, 0);
   const fontSize = Math.max(12, Math.min(24, size / 20));
+  let start = rotation;
 
-  items.forEach((label, i) => {
-    const start = rotation + i * seg;
+  entries.forEach(({ label, weight, color }) => {
+    const seg = (Math.PI * 2 * weight) / total;
     const end = start + seg;
 
     ctx.beginPath();
     ctx.moveTo(cx, cy);
     ctx.arc(cx, cy, radius, start, end);
     ctx.closePath();
-    ctx.fillStyle = `hsl(${(i * 360) / items.length}, 70%, 60%)`;
+    ctx.fillStyle = color;
     ctx.fill();
     ctx.strokeStyle = "#fff";
     ctx.lineWidth = 2;
@@ -153,6 +279,8 @@ function draw() {
     const maxWidth = radius * 0.7;
     ctx.fillText(truncate(label, maxWidth), radius - 16, 0);
     ctx.restore();
+
+    start = end;
   });
 
   // 外枠と中心
@@ -177,11 +305,16 @@ function truncate(text, maxWidth) {
   return t + "…";
 }
 
-// 針（真上 = -π/2）が指している項目のインデックス
-function indexAtPointer(count) {
-  const seg = (Math.PI * 2) / count;
+// 針（真上 = -π/2）が指している項目
+function entryAtPointer(entries) {
+  const total = entries.reduce((sum, e) => sum + e.weight, 0);
   const a = mod(-Math.PI / 2 - rotation, Math.PI * 2);
-  return Math.floor(a / seg);
+  let acc = 0;
+  for (const e of entries) {
+    acc += (Math.PI * 2 * e.weight) / total;
+    if (a < acc) return e;
+  }
+  return entries[entries.length - 1];
 }
 
 function mod(n, m) {
@@ -194,7 +327,8 @@ function easeOutCubic(t) {
 
 function spin() {
   const items = getItems();
-  if (busy || items.length === 0) return;
+  const entries = getEntries();
+  if (busy || entries.length === 0) return;
 
   setBusy(true);
   resultEl.textContent = "";
@@ -214,8 +348,7 @@ function spin() {
     }
 
     rotation = mod(rotation, Math.PI * 2);
-    const winnerIndex = indexAtPointer(items.length);
-    const winner = items[winnerIndex];
+    const { label: winner, index: winnerIndex } = entryAtPointer(entries);
     resultEl.textContent = `結果：${winner}`;
 
     if (removeWinnerEl.checked) {
@@ -225,6 +358,7 @@ function spin() {
         removed.push(winner);
         saveRemoved();
         renderRemoved();
+        renderList();
         draw();
         setBusy(false);
       }, REMOVE_DELAY);
@@ -261,9 +395,11 @@ async function loadFile(file) {
       return;
     }
     setItems(items);
+    clearSets();
     removed = [];
     saveRemoved();
     renderRemoved();
+    renderList();
     resultEl.textContent = "";
     draw();
   } catch (e) {
@@ -273,6 +409,7 @@ async function loadFile(file) {
 
 loadState();
 renderRemoved();
+renderList();
 setupCanvas();
 draw();
 
@@ -281,15 +418,18 @@ spinBtn.addEventListener("click", spin);
 itemsEl.addEventListener("input", () => {
   saveItems();
   resultEl.textContent = "";
+  renderList();
   draw();
 });
 
 resetBtn.addEventListener("click", () => {
   if (busy) return;
   setItems(DEFAULT_ITEMS);
+  clearSets();
   removed = [];
   saveRemoved();
   renderRemoved();
+  renderList();
   resultEl.textContent = "";
   draw();
 });
@@ -300,6 +440,7 @@ restoreBtn.addEventListener("click", () => {
   removed = [];
   saveRemoved();
   renderRemoved();
+  renderList();
   resultEl.textContent = "";
   draw();
 });

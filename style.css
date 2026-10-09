@@ -145,6 +145,78 @@ textarea.dragover {
   cursor: pointer;
 }
 
+.list-area {
+  margin-top: 8px;
+}
+
+.list-title {
+  margin: 0 0 4px;
+  font-weight: bold;
+}
+
+.item-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.item-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-top: 1px solid #eee;
+}
+
+.item-list li:first-child {
+  border-top: none;
+}
+
+.item-list li.off .item-name {
+  color: #aaa;
+  text-decoration: line-through;
+}
+
+.item-list .empty {
+  color: #888;
+}
+
+.swatch {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+}
+
+.item-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.double {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.prob {
+  width: 3.5em;
+  text-align: right;
+  font-size: 0.85rem;
+  color: #666;
+  font-variant-numeric: tabular-nums;
+}
+
 .removed-area {
   padding: 8px 12px;
   border: 1px solid #ddd;
