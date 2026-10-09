@@ -1,55 +1,73 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="候補と重みを設定して抽選できるルーレット。項目入力と抽選をタブで切り替えられます。">
+  <meta name="theme-color" content="#f7f7fb">
   <title>ルーレット</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header>
-    <h1>ルーレット</h1>
+<div id="roulette-soft" lang="ja">
+  <header class="r-header">
+    <div class="r-brand"><span class="r-mark"><span class="r-icon" aria-hidden="true">◎</span></span><h1>ルーレット</h1></div>
+    <span class="r-header-meta" id="r-header-count">0件の候補</span>
   </header>
 
-  <main>
-    <section class="wheel-area">
-      <div class="wheel-wrap">
-        <div class="pointer" aria-hidden="true"></div>
-        <canvas id="wheel" width="500" height="500"></canvas>
+  <div class="r-tabs" role="tablist" aria-label="ルーレットの画面">
+    <button class="r-tab" id="r-draw-tab" role="tab" aria-selected="true" aria-controls="r-draw-panel" type="button"><span class="r-icon" aria-hidden="true">◎</span>抽選</button>
+    <button class="r-tab" id="r-input-tab" role="tab" aria-selected="false" aria-controls="r-input-panel" type="button" tabindex="-1"><span class="r-icon" aria-hidden="true">☷</span>項目入力</button>
+  </div>
+
+  <main class="r-main" id="r-draw-panel" role="tabpanel" aria-labelledby="r-draw-tab">
+    <section class="r-play" aria-label="抽選">
+      <div class="r-wheel-wrap">
+        <div class="r-pointer" aria-hidden="true"></div>
+        <canvas class="r-wheel" id="r-wheel" width="400" height="400" role="img" aria-label="ルーレット"></canvas>
+        <div class="r-hub" aria-hidden="true"><span class="r-hub-dot"></span></div>
       </div>
-      <button id="spin" class="spin-btn">回す</button>
-      <p id="result" class="result" aria-live="polite"></p>
+      <button class="r-spin" id="r-spin" type="button"><span class="r-icon" aria-hidden="true">↻</span><span id="r-spin-label">回す</span></button>
+      <div class="r-result" role="status" aria-live="polite" aria-atomic="true">
+        <div class="r-overline">抽選結果</div>
+        <div class="r-result-value" id="r-result">—</div>
+        <div class="r-result-note" id="r-result-note"></div>
+      </div>
     </section>
 
-    <section class="items-area">
-      <label for="items">項目（1行に1つ）</label>
-      <textarea id="items" rows="10" placeholder="テキストファイルをここにドロップしても読み込めます"></textarea>
-      <div class="row">
-        <label class="sub-btn file-btn">
-          テキストファイルを読み込む
-          <input id="file" type="file" accept=".txt,.csv,text/plain">
-        </label>
-        <button id="reset" class="sub-btn" type="button">初期値に戻す</button>
-      </div>
-
-      <div class="list-area">
-        <p class="list-title">候補リスト</p>
-        <ul id="item-list" class="item-list"></ul>
-      </div>
-
-      <label class="check">
-        <input id="remove-winner" type="checkbox">
-        当たった項目を候補から外す
-      </label>
-
-      <div id="removed-area" class="removed-area" hidden>
-        <p class="removed-title">外した項目</p>
-        <ol id="removed-list" class="removed-list"></ol>
-        <button id="restore" class="sub-btn" type="button">すべて候補に戻す</button>
-      </div>
+    <section class="r-settings" aria-labelledby="r-candidates-title">
+      <div class="r-panel-header"><h2 id="r-candidates-title">候補</h2><span class="r-count" id="r-count">0件</span></div>
+      <fieldset id="r-settings-fields" aria-label="候補と抽選設定">
+        <div class="r-columns" aria-hidden="true"><span></span><span>項目</span><span>重み</span><span>確率</span></div>
+        <div id="r-rows"></div>
+        <div class="r-separator"></div>
+        <p class="r-subtitle">抽選設定</p>
+        <label class="r-option"><input type="checkbox" id="r-remove"><span>当たった項目を次回から外す</span></label>
+        <div class="r-bottom">
+          <button class="r-reset" id="r-enable-all" type="button"><span class="r-icon" aria-hidden="true">✓</span>すべて有効に戻す</button>
+          <button class="r-reset" id="r-reset" type="button"><span class="r-icon" aria-hidden="true">↺</span>初期値に戻す</button>
+        </div>
+      </fieldset>
     </section>
   </main>
 
-  <script src="script.js"></script>
+  <section id="r-input-panel" role="tabpanel" aria-labelledby="r-input-tab" hidden>
+    <div class="r-entry-panel">
+      <div class="r-panel-header"><h2>項目入力</h2><span class="r-count" id="r-input-count">0件</span></div>
+      <fieldset id="r-input-fields" aria-label="項目入力">
+        <label class="r-input-label" for="r-text">1行に1つの項目を入力（テキストファイルをドロップしても読み込めます）</label>
+        <textarea id="r-text" spellcheck="false" aria-describedby="r-error"></textarea>
+        <div class="r-error" id="r-error" role="alert" hidden></div>
+        <div class="r-entry-footer">
+          <button class="r-small-button" id="r-import" type="button">テキストを読み込む</button>
+          <span class="r-entry-hint">入力した内容はすぐ抽選に反映されます</span>
+          <input id="r-file" type="file" accept=".txt,.csv,text/plain" hidden>
+        </div>
+      </fieldset>
+    </div>
+  </section>
+</div>
+
+<script src="script.js"></script>
 </body>
 </html>

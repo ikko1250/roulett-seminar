@@ -1,45 +1,58 @@
 const DEFAULT_ITEMS = ["A", "B", "C", "D", "E", "F"];
 const STORAGE_KEY = "roulette-items";
-const REMOVED_KEY = "roulette-removed";
 const REMOVE_WINNER_KEY = "roulette-remove-winner";
 const DISABLED_KEY = "roulette-disabled";
 const DOUBLE_KEY = "roulette-double";
 const COLOR_KEY = "roulette-colors";
 
-// パステル調のパレット。文字は濃いグレーで載せる
+// パステル調のパレット。先頭6色は temp/index.html のデザインに合わせている
 const PALETTE = [
-  "#F4A7A3", // サーモンピンク
-  "#F9C98B", // アプリコット
-  "#F6E58D", // バター
-  "#B5E3A1", // ミント
-  "#9ED9D3", // アクア
-  "#A7C7F2", // スカイ
-  "#C3B1E8", // ラベンダー
-  "#F2B5D4", // ピンク
-  "#D8C3A5", // ベージュ
-  "#D3E09A", // ライム
+  "#F1B9C3", // ピンク
+  "#F4CBA2", // アプリコット
+  "#F3E6A9", // バター
+  "#BCDFCB", // ミント
+  "#A9D9DD", // アクア
+  "#BDC9EE", // ペリウィンクル
+  "#D5C6F0", // ラベンダー
+  "#E5D5BF", // ベージュ
+  "#D6E4AE", // ライム
+  "#EDC3DD", // ローズ
 ];
-const TEXT_COLOR = "#3a3a3a";
+const TEXT_COLOR = "#383544";
+const MIN_LABEL_FONT = 10; // ルーレットの文字の最小サイズ (px)
 const SPIN_DURATION = 2500; // ms
+const REDUCED_SPIN_DURATION = 80; // 動きを減らす設定のときの回転時間 (ms)
 const REMOVE_DELAY = 600; // 結果を見せてから候補を外すまでの待ち時間 (ms)
 const MIN_TURNS = 5;
 
-const canvas = document.getElementById("wheel");
+const $ = (id) => document.getElementById(id);
+const canvas = $("r-wheel");
 const ctx = canvas.getContext("2d");
-const spinBtn = document.getElementById("spin");
-const resultEl = document.getElementById("result");
-const itemsEl = document.getElementById("items");
-const resetBtn = document.getElementById("reset");
-const fileEl = document.getElementById("file");
-const removeWinnerEl = document.getElementById("remove-winner");
-const removedAreaEl = document.getElementById("removed-area");
-const removedListEl = document.getElementById("removed-list");
-const restoreBtn = document.getElementById("restore");
-const itemListEl = document.getElementById("item-list");
+const spinBtn = $("r-spin");
+const spinLabelEl = $("r-spin-label");
+const resultEl = $("r-result");
+const resultNoteEl = $("r-result-note");
+const rowsEl = $("r-rows");
+const countEl = $("r-count");
+const headerCountEl = $("r-header-count");
+const inputCountEl = $("r-input-count");
+const textEl = $("r-text");
+const errorEl = $("r-error");
+const fileEl = $("r-file");
+const importBtn = $("r-import");
+const removeWinnerEl = $("r-remove");
+const enableAllBtn = $("r-enable-all");
+const resetBtn = $("r-reset");
+const settingsFields = $("r-settings-fields");
+const inputFields = $("r-input-fields");
+const drawTab = $("r-draw-tab");
+const inputTab = $("r-input-tab");
+const drawPanel = $("r-draw-panel");
+const inputPanel = $("r-input-panel");
+const tabs = [drawTab, inputTab];
 
 let rotation = 0; // ラジアン。ホイール全体の回転角
 let busy = false; // 回転中、または当選項目を外すまでの待ち時間中
-let removed = []; // 候補から外した項目（当たった順）
 let disabled = new Set(); // 一時的に外している項目名
 let doubled = new Set(); // 確率2倍の項目名
 let colorMap = {}; // 項目名 → PALETTE の番号。一度決めた色は変えない
@@ -63,14 +76,7 @@ function storageSet(key, value) {
 
 function loadState() {
   const saved = storageGet(STORAGE_KEY);
-  itemsEl.value = saved !== null ? saved : DEFAULT_ITEMS.join("\n");
-
-  try {
-    const parsed = JSON.parse(storageGet(REMOVED_KEY));
-    if (Array.isArray(parsed)) removed = parsed.map(String);
-  } catch (e) {
-    removed = [];
-  }
+  textEl.value = saved !== null ? saved : DEFAULT_ITEMS.join("\n");
 
   removeWinnerEl.checked = storageGet(REMOVE_WINNER_KEY) === "1";
   disabled = loadSet(DISABLED_KEY);
@@ -108,15 +114,11 @@ function clearSets() {
 }
 
 function saveItems() {
-  storageSet(STORAGE_KEY, itemsEl.value);
-}
-
-function saveRemoved() {
-  storageSet(REMOVED_KEY, JSON.stringify(removed));
+  storageSet(STORAGE_KEY, textEl.value);
 }
 
 function getItems() {
-  return itemsEl.value
+  return textEl.value
     .split("\n")
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
@@ -172,110 +174,145 @@ function colorFor(label) {
   return PALETTE[colorMap[label] % PALETTE.length] || PALETTE[0];
 }
 
-function setItems(items) {
-  itemsEl.value = items.join("\n");
-  saveItems();
-}
-
 function setBusy(value) {
   busy = value;
-  spinBtn.disabled = value;
-  itemsEl.disabled = value;
-  resetBtn.disabled = value;
-  restoreBtn.disabled = value;
-  fileEl.disabled = value;
-  itemListEl.querySelectorAll("input").forEach((el) => (el.disabled = value));
+  settingsFields.disabled = value;
+  inputFields.disabled = value;
+  tabs.forEach((tab) => (tab.disabled = value));
+  updateSpinButton();
 }
+
+function updateSpinButton() {
+  spinBtn.disabled = busy || getEntries().length === 0;
+}
+
+function resetResult() {
+  resultEl.textContent = "—";
+  resultNoteEl.textContent = "";
+  spinLabelEl.textContent = "回す";
+}
+
+function showError(message) {
+  errorEl.textContent = message;
+  errorEl.hidden = !message;
+}
+
+// ---- タブ ----
+
+function switchPanel(panel) {
+  if (busy) return;
+  const drawing = panel === "draw";
+  drawPanel.hidden = !drawing;
+  inputPanel.hidden = drawing;
+  drawTab.setAttribute("aria-selected", String(drawing));
+  inputTab.setAttribute("aria-selected", String(!drawing));
+  drawTab.tabIndex = drawing ? 0 : -1;
+  inputTab.tabIndex = drawing ? -1 : 0;
+  // 非表示の間にサイズが変わっている可能性があるので描き直す
+  if (drawing) {
+    setupCanvas();
+    draw();
+  }
+}
+
+tabs.forEach((tab, index) => {
+  tab.addEventListener("click", () => switchPanel(index === 0 ? "draw" : "input"));
+  tab.addEventListener("keydown", (e) => {
+    if (busy || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
+    e.preventDefault();
+    const next = e.key === "Home" ? 0 : e.key === "End" ? 1 : 1 - index;
+    switchPanel(next === 0 ? "draw" : "input");
+    tabs[next].focus();
+  });
+});
+
+// ---- 候補リスト ----
 
 function renderList() {
   const items = getItems();
   const entries = getEntries();
   const total = entries.reduce((sum, e) => sum + e.weight, 0);
 
+  countEl.textContent = `${entries.length}件`;
+  headerCountEl.textContent = `${entries.length}件の候補`;
+  inputCountEl.textContent = `${items.length}件`;
+  updateSpinButton();
+
   if (items.length === 0) {
-    const li = document.createElement("li");
-    li.className = "empty";
-    li.textContent = "項目がありません";
-    itemListEl.replaceChildren(li);
+    const empty = document.createElement("div");
+    empty.className = "r-rows-empty";
+    empty.textContent = "「項目入力」タブで項目を入力してください";
+    rowsEl.replaceChildren(empty);
     return;
   }
 
-  itemListEl.replaceChildren(
-    ...items.map((label, index) => {
+  rowsEl.replaceChildren(
+    ...items.map((label) => {
       const on = !disabled.has(label);
-      const isDouble = doubled.has(label);
+      const weight = doubled.has(label) ? 2 : 1;
 
-      const li = document.createElement("li");
-      li.classList.toggle("off", !on);
+      const row = document.createElement("div");
+      row.className = "r-row" + (on ? "" : " is-off");
 
-      const enable = document.createElement("input");
-      enable.type = "checkbox";
-      enable.checked = on;
-      enable.title = "チェックを外すと一時的に候補から外れます";
-      enable.addEventListener("change", () => {
-        if (enable.checked) disabled.delete(label);
+      const check = document.createElement("input");
+      check.type = "checkbox";
+      check.checked = on;
+      check.setAttribute("aria-label", `${label}を抽選に含める`);
+      check.addEventListener("change", () => {
+        if (check.checked) disabled.delete(label);
         else disabled.add(label);
         onSettingsChange();
       });
 
+      const nameWrap = document.createElement("div");
+      nameWrap.className = "r-name-wrap";
       const swatch = document.createElement("span");
-      swatch.className = "swatch";
+      swatch.className = "r-swatch";
       swatch.style.background = colorFor(label);
-
       const name = document.createElement("span");
-      name.className = "item-name";
+      name.className = "r-name";
       name.textContent = label;
-      name.title = label;
       name.addEventListener("click", () => {
-        if (!busy) enable.click();
+        if (!busy) check.click();
       });
+      nameWrap.append(swatch, name);
 
-      const doubleLabel = document.createElement("label");
-      doubleLabel.className = "double";
-      const double = document.createElement("input");
-      double.type = "checkbox";
-      double.checked = isDouble;
-      double.addEventListener("change", () => {
-        if (double.checked) doubled.add(label);
-        else doubled.delete(label);
+      const weightBtn = document.createElement("button");
+      weightBtn.type = "button";
+      weightBtn.className = "r-weight";
+      weightBtn.textContent = `${weight}倍`;
+      weightBtn.setAttribute("aria-pressed", String(weight === 2));
+      weightBtn.setAttribute("aria-label", `${label}の重みを1倍と2倍で切り替える`);
+      weightBtn.addEventListener("click", () => {
+        if (doubled.has(label)) doubled.delete(label);
+        else doubled.add(label);
         onSettingsChange();
       });
-      doubleLabel.append(double, "2倍");
 
       const prob = document.createElement("span");
-      prob.className = "prob";
-      const weight = isDouble ? 2 : 1;
-      prob.textContent = on && total > 0 ? `${((weight / total) * 100).toFixed(1)}%` : "-";
+      prob.className = "r-probability";
+      prob.textContent = on && total > 0 ? `${((weight / total) * 100).toFixed(1)}%` : "—";
 
-      li.append(enable, swatch, name, doubleLabel, prob);
-      return li;
+      row.append(check, nameWrap, weightBtn, prob);
+      return row;
     })
   );
-
-  if (busy) setBusy(true);
 }
 
 function onSettingsChange() {
+  if (busy) return;
   saveSets();
-  resultEl.textContent = "";
+  resetResult();
   renderList();
   draw();
 }
 
-function renderRemoved() {
-  removedAreaEl.hidden = removed.length === 0;
-  removedListEl.replaceChildren(
-    ...removed.map((item) => {
-      const li = document.createElement("li");
-      li.textContent = item;
-      return li;
-    })
-  );
-}
+// ---- ルーレット描画 ----
 
 function setupCanvas() {
   const dpr = window.devicePixelRatio || 1;
   const size = canvas.clientWidth;
+  if (size === 0) return; // 非表示中
   canvas.width = size * dpr;
   canvas.height = size * dpr;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -284,73 +321,90 @@ function setupCanvas() {
 function draw() {
   const entries = getEntries();
   const size = canvas.clientWidth;
+  if (size === 0) return;
   const cx = size / 2;
   const cy = size / 2;
-  const radius = size / 2 - 8;
+  const radius = size / 2;
 
   ctx.clearRect(0, 0, size, size);
+  canvas.setAttribute(
+    "aria-label",
+    entries.length === 0 ? "候補なし" : `${entries.length}つの候補のルーレット`
+  );
 
   if (entries.length === 0) {
     ctx.beginPath();
     ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-    ctx.fillStyle = "#ddd";
+    ctx.fillStyle = "#eeecf5";
     ctx.fill();
-    ctx.fillStyle = "#666";
-    ctx.font = "16px sans-serif";
+    ctx.fillStyle = TEXT_COLOR;
+    ctx.font = `${Math.max(12, size * 0.0375)}px sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(
-      getItems().length === 0 ? "項目を入力してください" : "有効な項目がありません",
-      cx,
-      cy
-    );
+    ctx.fillText("候補を選択してください", cx, cy - radius * 0.42);
     return;
   }
 
   const total = entries.reduce((sum, e) => sum + e.weight, 0);
-  const fontSize = Math.max(12, Math.min(24, size / 20));
   let start = rotation;
 
-  entries.forEach(({ label, weight, color }) => {
+  // 扇形
+  const segments = entries.map(({ label, weight, color }) => {
     const seg = (Math.PI * 2 * weight) / total;
-    const end = start + seg;
-
     ctx.beginPath();
     ctx.moveTo(cx, cy);
-    ctx.arc(cx, cy, radius, start, end);
+    ctx.arc(cx, cy, radius, start, start + seg);
     ctx.closePath();
     ctx.fillStyle = color;
     ctx.fill();
-    ctx.strokeStyle = "#fff";
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
-    // ラベル（扇形の中心線に沿って配置）
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(start + seg / 2);
-    ctx.textAlign = "right";
-    ctx.textBaseline = "middle";
-    ctx.fillStyle = TEXT_COLOR;
-    ctx.font = `bold ${fontSize}px sans-serif`;
-    const maxWidth = radius * 0.7;
-    ctx.fillText(truncate(label, maxWidth), radius - 16, 0);
-    ctx.restore();
-
-    start = end;
+    if (entries.length > 1) {
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 1.4;
+      ctx.stroke();
+    }
+    const mid = start + seg / 2;
+    start += seg;
+    return { label, seg, mid };
   });
 
-  // 外枠と中心
-  ctx.beginPath();
-  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-  ctx.strokeStyle = "#333";
-  ctx.lineWidth = 4;
-  ctx.stroke();
+  // 文字（回転させず水平に描く）
+  const baseFont = size * 0.0575;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = TEXT_COLOR;
+  segments.forEach(({ label, seg, mid }) => {
+    // 候補が1つだけのときは、円全体を使って中心の少し上に描く
+    const single = entries.length === 1;
+    const r = radius * 0.65;
+    const x = single ? cx : cx + r * Math.cos(mid);
+    const y = single ? cy - radius * 0.42 : cy + r * Math.sin(mid);
 
-  ctx.beginPath();
-  ctx.arc(cx, cy, radius * 0.08, 0, Math.PI * 2);
-  ctx.fillStyle = "#333";
-  ctx.fill();
+    // 扇形に収まる幅と大きさを、文字の向き（水平）と扇形の向きから見積もる
+    const arcLen = single ? radius * 2 : r * seg;
+    const cos = Math.abs(Math.cos(mid));
+    const sin = Math.abs(Math.sin(mid));
+    const radialRoom = radius * 0.45;
+    const maxWidth = single
+      ? radius * 1.2
+      : Math.min(
+          radius * 0.6,
+          cos > 0.01 ? radialRoom / cos : Infinity,
+          sin > 0.01 ? (arcLen * 0.85) / sin : Infinity
+        );
+    // 収まらなければ最小サイズまで小さくし、それでも長ければ省略する
+    let fontSize = Math.max(MIN_LABEL_FONT, Math.min(baseFont, arcLen * 0.5));
+    setLabelFont(fontSize);
+    const width = ctx.measureText(label).width;
+    if (width > maxWidth) {
+      fontSize = Math.max(MIN_LABEL_FONT, (fontSize * maxWidth) / width);
+      setLabelFont(fontSize);
+    }
+    ctx.fillText(truncate(label, maxWidth), x, y);
+  });
+}
+
+function setLabelFont(size) {
+  ctx.font = `600 ${size}px Inter, "Noto Sans JP", sans-serif`;
 }
 
 function truncate(text, maxWidth) {
@@ -359,7 +413,8 @@ function truncate(text, maxWidth) {
   while (t.length > 0 && ctx.measureText(t + "…").width > maxWidth) {
     t = t.slice(0, -1);
   }
-  return t + "…";
+  // 「…」だけになるほど狭いときは、せめて先頭の1文字を出す
+  return t.length > 0 ? t + "…" : Array.from(text)[0];
 }
 
 // 針（真上 = -π/2）が指している項目
@@ -382,20 +437,25 @@ function easeOutCubic(t) {
   return 1 - Math.pow(1 - t, 3);
 }
 
+// ---- 回転 ----
+
 function spin() {
-  const items = getItems();
   const entries = getEntries();
   if (busy || entries.length === 0) return;
 
   setBusy(true);
-  resultEl.textContent = "";
+  resultEl.textContent = "…";
+  resultNoteEl.textContent = "";
+  spinLabelEl.textContent = "抽選中…";
 
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const duration = reduced ? REDUCED_SPIN_DURATION : SPIN_DURATION;
   const startRotation = rotation;
   const delta = MIN_TURNS * Math.PI * 2 + Math.random() * Math.PI * 2;
   const startTime = performance.now();
 
   function frame(now) {
-    const t = Math.min((now - startTime) / SPIN_DURATION, 1);
+    const t = Math.min((now - startTime) / duration, 1);
     rotation = startRotation + delta * easeOutCubic(t);
     draw();
 
@@ -405,16 +465,16 @@ function spin() {
     }
 
     rotation = mod(rotation, Math.PI * 2);
-    const { label: winner, index: winnerIndex } = entryAtPointer(entries);
-    resultEl.textContent = `結果：${winner}`;
+    const winner = entryAtPointer(entries).label;
+    resultEl.textContent = winner;
+    spinLabelEl.textContent = "もう一度回す";
 
     if (removeWinnerEl.checked) {
       // 結果を確認できるよう少し待ってから外す
       setTimeout(() => {
-        setItems(items.filter((_, i) => i !== winnerIndex));
-        removed.push(winner);
-        saveRemoved();
-        renderRemoved();
+        disabled.add(winner);
+        saveSets();
+        resultNoteEl.textContent = "次回の候補から外しました";
         renderList();
         draw();
         setBusy(false);
@@ -426,6 +486,8 @@ function spin() {
 
   requestAnimationFrame(frame);
 }
+
+// ---- 項目入力 ----
 
 // テキストファイルを読み込む。UTF-8 として読めなければ Shift_JIS とみなす
 async function readTextFile(file) {
@@ -448,57 +510,35 @@ async function loadFile(file) {
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
     if (items.length === 0) {
-      alert("ファイルに項目がありませんでした。");
+      showError("ファイルに項目がありませんでした。");
       return;
     }
-    setItems(items);
+    textEl.value = items.join("\n");
+    saveItems();
     clearSets();
-    removed = [];
-    saveRemoved();
-    renderRemoved();
+    showError("");
+    resetResult();
     renderList();
-    resultEl.textContent = "";
     draw();
   } catch (e) {
-    alert("ファイルを読み込めませんでした。");
+    showError("ファイルを読み込めませんでした。");
   }
 }
 
+// ---- 初期化とイベント ----
+
 loadState();
-renderRemoved();
 renderList();
 setupCanvas();
 draw();
 
 spinBtn.addEventListener("click", spin);
 
-itemsEl.addEventListener("input", () => {
+textEl.addEventListener("input", () => {
   saveItems();
-  resultEl.textContent = "";
+  showError("");
+  resetResult();
   renderList();
-  draw();
-});
-
-resetBtn.addEventListener("click", () => {
-  if (busy) return;
-  setItems(DEFAULT_ITEMS);
-  clearSets();
-  removed = [];
-  saveRemoved();
-  renderRemoved();
-  renderList();
-  resultEl.textContent = "";
-  draw();
-});
-
-restoreBtn.addEventListener("click", () => {
-  if (busy) return;
-  setItems([...getItems(), ...removed]);
-  removed = [];
-  saveRemoved();
-  renderRemoved();
-  renderList();
-  resultEl.textContent = "";
   draw();
 });
 
@@ -506,23 +546,42 @@ removeWinnerEl.addEventListener("change", () => {
   storageSet(REMOVE_WINNER_KEY, removeWinnerEl.checked ? "1" : "0");
 });
 
+enableAllBtn.addEventListener("click", () => {
+  if (busy) return;
+  disabled.clear();
+  onSettingsChange();
+});
+
+resetBtn.addEventListener("click", () => {
+  if (busy) return;
+  textEl.value = DEFAULT_ITEMS.join("\n");
+  saveItems();
+  clearSets();
+  showError("");
+  resetResult();
+  renderList();
+  draw();
+});
+
+importBtn.addEventListener("click", () => fileEl.click());
+
 fileEl.addEventListener("change", () => {
   loadFile(fileEl.files[0]);
   fileEl.value = ""; // 同じファイルを続けて選べるようにする
 });
 
-itemsEl.addEventListener("dragover", (e) => {
+textEl.addEventListener("dragover", (e) => {
   e.preventDefault();
-  itemsEl.classList.add("dragover");
+  textEl.classList.add("dragover");
 });
 
-itemsEl.addEventListener("dragleave", () => {
-  itemsEl.classList.remove("dragover");
+textEl.addEventListener("dragleave", () => {
+  textEl.classList.remove("dragover");
 });
 
-itemsEl.addEventListener("drop", (e) => {
+textEl.addEventListener("drop", (e) => {
   e.preventDefault();
-  itemsEl.classList.remove("dragover");
+  textEl.classList.remove("dragover");
   loadFile(e.dataTransfer.files[0]);
 });
 
